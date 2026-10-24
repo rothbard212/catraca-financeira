@@ -10,6 +10,4 @@ public enum StatusPagamento {
             default -> false;
         };
     }
-
-
 }
