@@ -6,10 +6,12 @@ import com.rothbard212.catraca_financeira.model.*;
 import com.rothbard212.catraca_financeira.repository.EventoWebhookRepository;
 import com.rothbard212.catraca_financeira.repository.PagamentoRepository;
 import com.rothbard212.catraca_financeira.repository.PedidoRepository;
-import jakarta.transaction.Transactional;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Service
 public class WebhookService {
@@ -18,6 +20,7 @@ public class WebhookService {
     private final PagamentoRepository pagamentoRepository;
     private final PedidoRepository pedidoRepository;
     private final GatewayPagamento gateway;
+
 
     public WebhookService(EventoWebhookRepository eventoRepository,
                           PagamentoRepository pagamentoRepository,
@@ -64,5 +67,17 @@ public class WebhookService {
             pedido.setStatus(StatusPedido.PAGO);
         }
         return "PROCESSADO";
+    }
+
+    @Transactional
+    public void registrarAssinaturaInvalida(String payload) {
+        EventoWebhook evento = new EventoWebhook();
+        evento.setChaveIdempotencia("invalido-" + UUID.randomUUID());
+        evento.setPayload(payload);
+        evento.setAssinaturaValida(false);
+        evento.setRecebidoEm(LocalDateTime.now());
+        evento.setProcessadoEm(LocalDateTime.now());
+        evento.setResultado("ASSINATURA_INVALIDA");
+        eventoRepository.save(evento);
     }
 }
