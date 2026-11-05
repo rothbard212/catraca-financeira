@@ -6,10 +6,8 @@ import com.rothbard212.catraca_financeira.model.*;
 import com.rothbard212.catraca_financeira.repository.EventoWebhookRepository;
 import com.rothbard212.catraca_financeira.repository.PagamentoRepository;
 import com.rothbard212.catraca_financeira.repository.PedidoRepository;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -41,15 +39,30 @@ public class WebhookService {
         evento.setRecebidoEm(LocalDateTime.now());
         eventoRepository.saveAndFlush(evento);   // duplicado: o banco recusa aqui
 
-        Pagamento pagamento = pagamentoRepository.findByMpPaymentId(mpPaymentId)
-                .orElseThrow(() -> new IllegalStateException("Pagamento local não encontrado: " + mpPaymentId));
+
         DadosPagamentoGateway dados = gateway.consultar(mpPaymentId);
+        Pagamento pagamento = buscarLocal(dados.externalReference());
 
         evento.setResultado(aplicar(pagamento, dados));
         evento.setProcessadoEm(LocalDateTime.now());
     }
 
+    private Pagamento buscarLocal(String externalReference) {
+        try {
+            return pagamentoRepository.findById(Long.valueOf(externalReference))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Pagamento local não encontrado: " + externalReference));
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("external_reference inválido: " + externalReference);
+        }
+    }
+
     private String aplicar(Pagamento pagamento, DadosPagamentoGateway dados) {
+        if (pagamento.getMpPaymentId() == null) {
+            pagamento.setMpPaymentId(dados.mpPaymentId());
+        } else if (!pagamento.getMpPaymentId().equals(dados.mpPaymentId())) {
+            return "PAGAMENTO_MP_DIFERENTE";
+        }
         if (pagamento.getStatus() == dados.status()) {
             return "SEM_MUDANCA";
         }

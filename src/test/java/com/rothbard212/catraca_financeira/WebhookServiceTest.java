@@ -18,7 +18,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
-
 import java.math.BigDecimal;
 import java.util.Optional;
 
@@ -43,6 +42,10 @@ class WebhookServiceTest {
     private Pedido pedido;
     private Pagamento pagamento;
 
+    private DadosPagamentoGateway dados(StatusPagamento status, String valor) {
+        return new DadosPagamentoGateway("MP-1", "1", status, new BigDecimal(valor));
+    }
+
     @BeforeEach
     void setUp() {
         pedido = new Pedido();
@@ -53,15 +56,14 @@ class WebhookServiceTest {
         pagamento.setPedido(pedido);
         pagamento.setStatus(StatusPagamento.PENDENTE);
         pagamento.setValor(new BigDecimal("100.00"));
-        pagamento.setMpPaymentId("MP-1");
+        pagamento.setId(1L);
     }
 
     @Test
     void deveAprovarPagamentoEMarcarPedidoComoPago() {
 
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.of(pagamento));
-        when(gateway.consultar("MP-1")).thenReturn(
-                new DadosPagamentoGateway("MP-1", StatusPagamento.APROVADO, new BigDecimal("100.00")));
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "100.00"));
 
         service.processar("evt-1", "{}", "MP-1");
 
@@ -75,9 +77,8 @@ class WebhookServiceTest {
 
     @Test
     void deveRegistrarPagamentoRecusado() {
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.of(pagamento));
-        when(gateway.consultar("MP-1")).thenReturn(
-                new DadosPagamentoGateway("MP-1", StatusPagamento.RECUSADO, new BigDecimal("100.00")));
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.RECUSADO, "100.00"));
 
         service.processar("evt-1", "{}", "MP-1");
 
@@ -91,9 +92,8 @@ class WebhookServiceTest {
 
     @Test
     void naoDeveMarcarPedidoComoPagoQuandoValorDiverge() {
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.of(pagamento));
-        when(gateway.consultar("MP-1")).thenReturn(
-                new DadosPagamentoGateway("MP-1", StatusPagamento.APROVADO, new BigDecimal("90.00")));
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "90.00"));
 
         service.processar("evt-1", "{}", "MP-1");
 
@@ -107,9 +107,8 @@ class WebhookServiceTest {
     @Test
     void deveRetornarSemMudancaQuandoStatusJaEhOMesmo() {
         pagamento.setStatus(StatusPagamento.APROVADO);
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.of(pagamento));
-        when(gateway.consultar("MP-1")).thenReturn(
-                new DadosPagamentoGateway("MP-1", StatusPagamento.APROVADO, new BigDecimal("100.00")));
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "100.00"));
 
         service.processar("evt-1", "{}", "MP-1");
 
@@ -122,9 +121,8 @@ class WebhookServiceTest {
 
     @Test
     void deveRejeitarTransicaoInvalida() {
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.of(pagamento));
-        when(gateway.consultar("MP-1")).thenReturn(
-                new DadosPagamentoGateway("MP-1", StatusPagamento.REEMBOLSADO, new BigDecimal("100.00")));
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.REEMBOLSADO, "100.00"));
 
         service.processar("evt-1", "{}", "MP-1");
 
@@ -142,18 +140,40 @@ class WebhookServiceTest {
 
         assertThrows(DataIntegrityViolationException.class,
                 () -> service.processar("evt-1", "{}", "MP-1"));
-
         verify(gateway, never()).consultar(any());
     }
 
     @Test
     void deveLancarExcecaoQuandoPagamentoLocalNaoExiste() {
-        when(pagamentoRepository.findByMpPaymentId("MP-1")).thenReturn(Optional.empty());
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.empty());
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "100.00"));
 
         assertThrows(IllegalStateException.class,
                 () -> service.processar("evt-1", "{}", "MP-1"));
+    }
 
-        verify(gateway, never()).consultar(any());
+    @Test
+    void deveGravarMpPaymentIdNaPrimeiraNotificacao() {
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "100.00"));
+
+        service.processar("evt-1", "{}", "MP-1");
+
+        assertEquals("MP-1", pagamento.getMpPaymentId());
+    }
+
+    @Test
+    void deveRegistrarQuandoMpPaymentIdForDiferente() {
+        pagamento.setMpPaymentId("OUTRO");
+        when(pagamentoRepository.findById(1L)).thenReturn(Optional.of(pagamento));
+        when(gateway.consultar("MP-1")).thenReturn(dados(StatusPagamento.APROVADO, "100.00"));
+
+        service.processar("evt-1", "{}", "MP-1");
+
+        ArgumentCaptor<EventoWebhook> captor = ArgumentCaptor.forClass(EventoWebhook.class);
+        verify(eventoRepository).saveAndFlush(captor.capture());
+        assertEquals("PAGAMENTO_MP_DIFERENTE", captor.getValue().getResultado());
+        assertEquals(StatusPagamento.PENDENTE, pagamento.getStatus());
     }
 
 
