@@ -54,7 +54,7 @@ class WebhookServiceTest {
 
         pagamento = new Pagamento();
         pagamento.setPedido(pedido);
-        pagamento.setStatus(StatusPagamento.PENDENTE);
+        pagamento.setStatus(StatusPagamento.APROVADO);
         pagamento.setValor(new BigDecimal("100.00"));
         pagamento.setId(1L);
     }
