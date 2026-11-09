@@ -34,6 +34,14 @@ public class WebhookController {
             webhookService.registrarAssinaturaInvalida(notificacao.toString());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+        if (!"payment".equals(notificacao.type())) {
+            log.info("Notificação do tipo {} ignorada", notificacao.type());
+            return ResponseEntity.ok().build();
+        }
+        if (notificacao.id() == null || dataId == null) {
+            log.warn("Notificação de pagamento sem id ou data.id, rejeitada");
+            return ResponseEntity.badRequest().build();
+        }
         try {
             webhookService.processar(notificacao.id(), notificacao.toString(), dataId);
         } catch (DataIntegrityViolationException duplicado) {
