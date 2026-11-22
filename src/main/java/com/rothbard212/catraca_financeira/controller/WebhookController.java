@@ -1,6 +1,5 @@
 package com.rothbard212.catraca_financeira.controller;
 
-import com.rothbard212.catraca_financeira.dto.NotificacaoMercadoPago;
 import com.rothbard212.catraca_financeira.gateway.AssinaturaMercadoPago;
 import com.rothbard212.catraca_financeira.service.WebhookService;
 import org.slf4j.Logger;
@@ -9,6 +8,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/webhooks")
@@ -28,24 +29,26 @@ public class WebhookController {
             @RequestHeader(value = "x-signature", required = false) String xSignature,
             @RequestHeader(value = "x-request-id", required = false) String xRequestId,
             @RequestParam(value = "data.id", required = false) String dataId,
-            @RequestBody NotificacaoMercadoPago notificacao) {
+            @RequestBody Map<String, Object> corpo) {
 
-        if (!assinatura.valida(xSignature, xRequestId, dataId)) {
-            webhookService.registrarAssinaturaInvalida(notificacao.toString());
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        if (!"payment".equals(notificacao.type())) {
-            log.info("Notificação do tipo {} ignorada", notificacao.type());
+        String payload = corpo.toString();
+
+        if (!"payment".equals(corpo.get("type"))) {
+            log.info("Notificação ignorada (não é de pagamento): {}", payload);
             return ResponseEntity.ok().build();
         }
-        if (notificacao.id() == null || dataId == null) {
+        if (!assinatura.valida(xSignature, xRequestId, dataId)) {
+            webhookService.registrarAssinaturaInvalida(payload);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (corpo.get("id") == null || dataId == null) {
             log.warn("Notificação de pagamento sem id ou data.id, rejeitada");
             return ResponseEntity.badRequest().build();
         }
         try {
-            webhookService.processar(notificacao.id(), notificacao.toString(), dataId);
+            webhookService.processar(String.valueOf(corpo.get("id")), payload, dataId);
         } catch (DataIntegrityViolationException duplicado) {
-            log.info("Evento {} já processado, ignorando reenvio", notificacao.id());
+            log.info("Evento {} já processado, ignorando reenvio", corpo.get("id"));
         }
         return ResponseEntity.ok().build();
     }
